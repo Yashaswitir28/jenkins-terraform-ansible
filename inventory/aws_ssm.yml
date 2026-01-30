@@ -1,0 +1,10 @@
+plugin: amazon.aws.aws_ec2
+regions:
+  - ap-south-1
+filters:
+  tag:Project: Terraform-Ansible-Jenkins
+keyed_groups:
+  - key: tags.OS
+    prefix: os
+compose:
+  ansible_host: instance_id

@@ -1,0 +1,75 @@
+---
+
+- name: "Docker Installation on Amazon Linux"
+  hosts: amazon_linux
+  become: yes
+  tasks:
+    - name: Update all packages
+      yum:
+        name: '*'
+        state: latest
+        update_only: yes
+
+    - name: Install dependencies
+      yum:
+        name: "{{ item }}"
+        state: latest
+        update_cache: yes
+      loop:
+        - python-pip
+        - yum-utils
+        - device-mapper-persistent-data
+        - lvm2
+        - amazon-linux-extras
+
+    - name: Add extras repository
+      shell: yum-config-manager --enable extras
+
+    - name: Enable packages from amazon-linux-extras packages
+      shell: "amazon-linux-extras enable python3.8 ansible2 docker"
+
+    - name: Clean yum metadata cache
+      command: yum clean metadata
+      args:
+        warn: false
+
+    - name: Ensure a list of yum packages are installed
+      yum:
+        name: "{{ item }}"
+        state: latest
+        update_cache: yes
+      loop:
+        - python3.8
+        - ansible
+        - docker
+
+    - name: Enable Docker service at startup
+      service:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Upgrade pip3
+      shell: "python3.8 -m pip install pip --upgrade"
+
+    - name: Ensure Python pip packages are installed
+      pip:
+        name: "{{ item }}"
+        executable: /usr/local/bin/pip3.8
+      loop:
+        - boto
+        - boto3
+        - docker-compose
+    
+  
+    # - name: Create "docker" group
+    #   group:
+    #     name: docker
+    #     state: present
+    
+    # - name: Add remote "ubuntu" user to "docker" group
+    #   user:
+    #     name: "{{ ansible_user }}"
+    #     group: docker
+    #     append: yes
+        

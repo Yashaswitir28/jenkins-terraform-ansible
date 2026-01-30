@@ -1,0 +1,29 @@
+---
+
+- name: Importing playbook for ubuntu 
+  import_playbook: docker_install_on_ubuntu.yaml
+  tags:
+  - docker_ubuntu
+  
+- name: Importing playbok for amazon linux
+  import_playbook: docker_install_on_amazon_linux.yaml
+  tags:
+  - docker_amazon_linux
+  
+- hosts: linux
+  tasks:
+    - name: Create "docker" group
+      group:
+        name: docker
+        state: present
+      tags:
+      - user_group
+    
+    - name: Add remote "ubuntu" user to "docker" group
+      user:
+        name: "{{ ansible_user }}"
+        groups: docker
+        append: yes
+      tags:
+      - user_group
+  
