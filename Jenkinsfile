@@ -1,5 +1,5 @@
 pipeline {
-    agent { label 'common' }
+    agent any
 
     environment {
         AWS_DEFAULT_REGION = 'ap-south-1'
@@ -113,3 +113,4 @@ pipeline {
         }
     }
 }
+
