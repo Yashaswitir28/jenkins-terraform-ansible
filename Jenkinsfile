@@ -26,9 +26,9 @@ pipeline {
                 ]]) {
                     dir('terraform') {
                         sh '''
-                            C:/Windows/system32/terraform.exe init
-                            C:/Windows/system32/terraform.exe plan
-                            C:/Windows/system32/terraform.exe apply -auto-approve
+                            C:/Program Files/Terraform/terraform.exe init
+                            C:/Program Files/Terraform/terraform.exe plan
+                            C:/Program Files/Terraform/terraform.exe apply -auto-approve
                         '''
                     }
                 }
@@ -58,7 +58,7 @@ pipeline {
             steps {
                 dir('ansible') {
                     sh '''
-                        ansible-playbook -i ../static_inventory docker_installation_playbook.yaml
+                        ansible -i ../static_inventory docker_installation_playbook.yaml
                     '''
                 }
             }
@@ -77,7 +77,7 @@ pipeline {
                     credentialsId: 'aws-credentials'
                 ]]) {
                     dir('terraform') {
-                        sh 'C:/Windows/system32/terraform.exe destroy -auto-approve'
+                        sh 'C:/Program Files/Terraform/terraform.exe destroy -auto-approve'
                     }
                 }
             }
@@ -96,3 +96,4 @@ pipeline {
         }
     }
 }
+
