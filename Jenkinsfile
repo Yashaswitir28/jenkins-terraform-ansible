@@ -24,11 +24,11 @@ pipeline {
                     $class: 'AmazonWebServicesCredentialsBinding',
                     credentialsId: 'aws-credentials'
                 ]]) {
-                    dir('infra-using-terraform') {
+                    dir('terraform') {
                         sh '''
-                            terraform init
-                            terraform plan
-                            terraform apply -auto-approve
+                            C:/Windows/system32/terraform.exe init
+                            C:/Windows/system32/terraform.exe plan
+                            C:/Windows/system32/terraform.exe apply -auto-approve
                         '''
                     }
                 }
@@ -58,9 +58,7 @@ pipeline {
             steps {
                 dir('ansible') {
                     sh '''
-                        ansible \
-                          -i inventory \
-                          docker_installation_playbook.yaml
+                        ansible-playbook -i ../static_inventory docker_installation_playbook.yaml
                     '''
                 }
             }
@@ -78,8 +76,8 @@ pipeline {
                     $class: 'AmazonWebServicesCredentialsBinding',
                     credentialsId: 'aws-credentials'
                 ]]) {
-                    dir('infra-using-terraform') {
-                        sh 'terraform destroy -auto-approve'
+                    dir('terraform') {
+                        sh 'C:/Windows/system32/terraform.exe destroy -auto-approve'
                     }
                 }
             }
