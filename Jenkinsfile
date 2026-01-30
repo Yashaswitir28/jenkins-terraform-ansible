@@ -19,7 +19,7 @@ pipeline {
             steps {
                 echo "Testing AWS credentials..."
                 withCredentials([
-                    [$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-creds']
+                    [$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']
                 ]) {
                     bat 'aws sts get-caller-identity'
                 }
@@ -31,7 +31,7 @@ pipeline {
                 echo "Initializing Terraform..."
                 dir("${WORKSPACE_DIR}\\terraform") {
                     withCredentials([
-                        [$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-creds']
+                        [$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']
                     ]) {
                         bat "\"${TERRAFORM_PATH}\" init -input=false"
                     }
@@ -44,7 +44,7 @@ pipeline {
                 echo "Running Terraform plan..."
                 dir("${WORKSPACE_DIR}\\terraform") {
                     withCredentials([
-                        [$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-creds']
+                        [$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']
                     ]) {
                         bat "\"${TERRAFORM_PATH}\" plan -out=tfplan"
                     }
@@ -57,7 +57,7 @@ pipeline {
                 echo "Applying Terraform configuration..."
                 dir("${WORKSPACE_DIR}\\terraform") {
                     withCredentials([
-                        [$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-creds']
+                        [$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']
                     ]) {
                         bat "\"${TERRAFORM_PATH}\" apply -auto-approve tfplan"
                     }
@@ -70,7 +70,7 @@ pipeline {
                 echo "Generating static inventory for Ansible..."
                 dir("${WORKSPACE_DIR}\\terraform") {
                     withCredentials([
-                        [$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-creds']
+                        [$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']
                     ]) {
                         script {
                             // Get IPs from Terraform outputs
@@ -122,7 +122,7 @@ pipeline {
         stage('Commit Inventory to Git') {
             steps {
                 echo "Committing static_inventory to Git..."
-                withCredentials([string(credentialsId: 'github-token', variable: 'GIT_TOKEN')]) {
+                withCredentials([string(credentialsId: 'github-creds', variable: 'GIT_TOKEN')]) {
                     dir("${WORKSPACE_DIR}") {
                         script {
                             bat '''
@@ -180,7 +180,7 @@ pipeline {
                 echo "Destroying Terraform infrastructure..."
                 dir("${WORKSPACE_DIR}\\terraform") {
                     withCredentials([
-                        [$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-creds']
+                        [$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']
                     ]) {
                         bat "\"${TERRAFORM_PATH}\" destroy -auto-approve"
                     }
@@ -208,3 +208,4 @@ pipeline {
         }
     }
 }
+
