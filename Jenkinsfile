@@ -99,17 +99,14 @@ pipeline {
     }
 
     post {
-        always {
-            node { 
-                echo "Cleaning workspace..."
-                cleanWs()
-            }
-        }
-        success {
-            echo "✅ Pipeline finished successfully"
-        }
-        failure {
-            echo "❌ Pipeline failed – infra may not be destroyed automatically"
-        }
+    always {
+        echo "Cleaning workspace..."
+        cleanWs()
+    }
+    success {
+        echo "✅ Pipeline finished successfully"
+    }
+    failure {
+        echo "❌ Pipeline failed – infra may not be destroyed automatically"
     }
 }
