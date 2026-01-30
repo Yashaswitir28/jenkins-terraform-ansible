@@ -2,16 +2,26 @@ pipeline {
     agent any
 
     environment {
-        AWS_DEFAULT_REGION = 'ap-south-1'
+        AWS_ACCESS_KEY_ID = credentials('aws-access-key-id')
+        AWS_SECRET_ACCESS_KEY = credentials('aws-secret-access-key')
+        GIT_TOKEN = credentials('github-token')
+        TERRAFORM_PATH = "C:\\Program Files\\Terraform\\terraform.exe"
+        WORKSPACE_DIR = "C:\\ProgramData\\Jenkins\\.jenkins\\workspace\\jenkins-terraform-ansible"
     }
 
     stages {
+
+        stage('Checkout SCM') {
+            steps {
+                checkout scm
+            }
+        }
 
         stage('AWS Test') {
             steps {
                 withCredentials([[
                     $class: 'AmazonWebServicesCredentialsBinding',
-                    credentialsId: 'aws-credentials'
+                    credentialsId: 'aws-creds'
                 ]]) {
                     bat 'aws sts get-caller-identity'
                 }
@@ -20,16 +30,14 @@ pipeline {
 
         stage('Infra provisioning') {
             steps {
-                withCredentials([[
-                    $class: 'AmazonWebServicesCredentialsBinding',
-                    credentialsId: 'aws-credentials'
-                ]]) {
-                    dir('terraform') {
-                        bat """
-                            "C:\\Program Files\\Terraform\\terraform.exe" init
-                            "C:\\Program Files\\Terraform\\terraform.exe" plan
-                            "C:\\Program Files\\Terraform\\terraform.exe" apply -auto-approve
-                        """
+                dir("${WORKSPACE_DIR}\\terraform") {
+                    withCredentials([[
+                        $class: 'AmazonWebServicesCredentialsBinding',
+                        credentialsId: 'aws-creds'
+                    ]]) {
+                        bat "\"${TERRAFORM_PATH}\" init"
+                        bat "\"${TERRAFORM_PATH}\" plan"
+                        bat "\"${TERRAFORM_PATH}\" apply -auto-approve"
                     }
                 }
             }
@@ -38,66 +46,60 @@ pipeline {
         stage('Generate static_inventory') {
             steps {
                 script {
-                    // Fetch Terraform outputs
-                    def ubuntu_ip = bat(script: '"C:\\Program Files\\Terraform\\terraform.exe" -chdir=terraform output -raw ubuntu_public_ip', returnStdout: true).trim()
-                    def amazon_ip = bat(script: '"C:\\Program Files\\Terraform\\terraform.exe" -chdir=terraform output -raw amazon_linux_public_ip', returnStdout: true).trim()
+                    dir("${WORKSPACE_DIR}\\terraform") {
+                        // Capture Terraform JSON output for Ubuntu and Amazon Linux
+                        def ubuntuIPsJson = bat(script: "\"${TERRAFORM_PATH}\" output -json ubuntu_public_ip", returnStdout: true).trim()
+                        def amazonIPsJson = bat(script: "\"${TERRAFORM_PATH}\" output -json amazon_linux_public_ip", returnStdout: true).trim()
 
-                    // Create static_inventory file at workspace root
-                    writeFile file: 'static_inventory', text: """
-[ubuntu]
-${ubuntu_ip}
+                        // Parse JSON to lists
+                        def ubuntuIPs = readJSON text: ubuntuIPsJson
+                        def amazonIPs = readJSON text: amazonIPsJson
 
-[amazon_linux]
-${amazon_ip}
-"""
+                        // Build static_inventory content
+                        def inventory = "[ubuntu]\n"
+                        ubuntuIPs.each { ip -> inventory += "${ip}\n" }
+
+                        inventory += "\n[amazon-linux]\n"
+                        amazonIPs.each { ip -> inventory += "${ip}\n" }
+
+                        // Write to file
+                        writeFile file: "${WORKSPACE_DIR}\\static_inventory", text: inventory
+                        echo "static_inventory file created:\n${inventory}"
+                    }
                 }
             }
         }
 
-        stage('Commit static_inventory file into GitHub') {
+        stage('Commit static_inventory to GitHub') {
             steps {
-                withCredentials([usernamePassword(
-                    credentialsId: 'github-creds',
-                    usernameVariable: 'GIT_USER',
-                    passwordVariable: 'GIT_TOKEN'
-                )]) {
-                    bat """
-                        git config user.email "yashaswitirole28@gmail.com"
-                        git config user.name "Yashaswitir28"
-                        if exist static_inventory (
-                            git add static_inventory
-                            git commit -m "static_inventory file added by Jenkins Pipeline" || echo Nothing to commit
-                            git push https://%GIT_USER%:%GIT_TOKEN%@github.com/Yashaswitir28/jenkins-terraform-ansible.git HEAD:main
-                        ) else (
-                            echo static_inventory does not exist, skipping commit
-                        )
-                    """
+                withCredentials([string(credentialsId: 'github-token', variable: 'GIT_TOKEN')]) {
+                    dir("${WORKSPACE_DIR}") {
+                        bat 'git config user.email "yashaswitirole28@gmail.com"'
+                        bat 'git config user.name "Yashaswitir28"'
+                        bat 'git add static_inventory'
+                        bat 'git commit -m "Update static_inventory file" || echo "No changes to commit"'
+                        bat "git push https://${GIT_TOKEN}@github.com/Yashaswitir28/jenkins-terraform-ansible.git HEAD:main"
+                    }
                 }
             }
         }
 
         stage('Ansible via AWS SSM') {
             steps {
-                bat """
-                    ansible -i static_inventory docker_installation_playbook.yaml
-                """
+                dir("${WORKSPACE_DIR}") {
+                    bat 'ansible-playbook -i static_inventory docker_installation_playbook.yaml'
+                }
             }
         }
 
-        stage('Proceed to destroy infra?') {
+        stage('Destroy Infra') {
             steps {
-                input message: 'Destroy AWS resources?'
-            }
-        }
-
-        stage('Destroying infra') {
-            steps {
-                withCredentials([[
-                    $class: 'AmazonWebServicesCredentialsBinding',
-                    credentialsId: 'aws-credentials'
-                ]]) {
-                    dir('terraform') {
-                        bat '"C:\\Program Files\\Terraform\\terraform.exe" destroy -auto-approve'
+                dir("${WORKSPACE_DIR}\\terraform") {
+                    withCredentials([[
+                        $class: 'AmazonWebServicesCredentialsBinding',
+                        credentialsId: 'aws-creds'
+                    ]]) {
+                        bat "\"${TERRAFORM_PATH}\" destroy -auto-approve"
                     }
                 }
             }
@@ -105,14 +107,15 @@ ${amazon_ip}
     }
 
     post {
-        success {
-            echo "✅ Pipeline completed successfully"
-        }
-        failure {
-            echo "❌ Pipeline failed – infra NOT destroyed automatically"
-        }
         always {
             cleanWs()
+            echo "❌ Pipeline finished – workspace cleaned"
+        }
+        success {
+            echo "✅ Pipeline finished successfully"
+        }
+        failure {
+            echo "❌ Pipeline failed – infra may not be destroyed automatically"
         }
     }
 }
