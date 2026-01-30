@@ -2,10 +2,8 @@ pipeline {
     agent any
 
     environment {
-        AWS_ACCESS_KEY_ID = credentials('aws-access-key-id')
-        AWS_SECRET_ACCESS_KEY = credentials('aws-secret-access-key')
         TERRAFORM_PATH = "C:\\Program Files\\Terraform\\terraform.exe"
-        WORKSPACE_DIR = "C:\\ProgramData\\Jenkins\\.jenkins\\workspace\\jenkins-terraform-ansible"
+        WORKSPACE_DIR = "${env.WORKSPACE}"
     }
 
     stages {
@@ -18,10 +16,9 @@ pipeline {
 
         stage('AWS Test') {
             steps {
-                withCredentials([[
-                    $class: 'AmazonWebServicesCredentialsBinding',
-                    credentialsId: 'aws-creds'
-                ]]) {
+                withCredentials([
+                    [$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-creds']
+                ]) {
                     bat 'aws sts get-caller-identity'
                 }
             }
@@ -30,10 +27,9 @@ pipeline {
         stage('Terraform Apply') {
             steps {
                 dir("${WORKSPACE_DIR}\\terraform") {
-                    withCredentials([[
-                        $class: 'AmazonWebServicesCredentialsBinding',
-                        credentialsId: 'aws-creds'
-                    ]]) {
+                    withCredentials([
+                        [$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-creds']
+                    ]) {
                         bat "\"${TERRAFORM_PATH}\" init"
                         bat "\"${TERRAFORM_PATH}\" plan"
                         bat "\"${TERRAFORM_PATH}\" apply -auto-approve"
@@ -44,13 +40,15 @@ pipeline {
 
         stage('Generate static_inventory') {
             steps {
-                script {
-                    dir("${WORKSPACE_DIR}\\terraform") {
+                dir("${WORKSPACE_DIR}\\terraform") {
+                    script {
+                        // Using -json to avoid the tuple/raw error
                         def ubuntuIPsJson = bat(script: "\"${TERRAFORM_PATH}\" output -json ubuntu_public_ip", returnStdout: true).trim()
                         def amazonIPsJson = bat(script: "\"${TERRAFORM_PATH}\" output -json amazon_linux_public_ip", returnStdout: true).trim()
 
-                        def ubuntuIPs = readJSON text: ubuntuIPsJson
-                        def amazonIPs = readJSON text: amazonIPsJson
+                        // Parse JSON manually
+                        def ubuntuIPs = new groovy.json.JsonSlurper().parseText(ubuntuIPsJson)
+                        def amazonIPs = new groovy.json.JsonSlurper().parseText(amazonIPsJson)
 
                         def inventory = "[ubuntu]\n"
                         ubuntuIPs.each { ip -> inventory += "${ip}\n" }
@@ -90,10 +88,9 @@ pipeline {
         stage('Destroy Terraform Infra') {
             steps {
                 dir("${WORKSPACE_DIR}\\terraform") {
-                    withCredentials([[
-                        $class: 'AmazonWebServicesCredentialsBinding',
-                        credentialsId: 'aws-creds'
-                    ]]) {
+                    withCredentials([
+                        [$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-creds']
+                    ]) {
                         bat "\"${TERRAFORM_PATH}\" destroy -auto-approve"
                     }
                 }
@@ -103,8 +100,10 @@ pipeline {
 
     post {
         always {
-            echo "Cleaning workspace..."
-            cleanWs()
+            node { 
+                echo "Cleaning workspace..."
+                cleanWs()
+            }
         }
         success {
             echo "✅ Pipeline finished successfully"
