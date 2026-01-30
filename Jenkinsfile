@@ -88,9 +88,9 @@ pipeline {
             }
         }
 
-        stage('Generate Ansible Inventory') {
+        stage('Get Instance IDs') {
             steps {
-                echo "Generating static inventory for Ansible..."
+                echo "Retrieving EC2 instance IDs..."
                 dir("${WORKSPACE_DIR}\\terraform") {
                     withCredentials([
                         [
@@ -101,101 +101,159 @@ pipeline {
                         ]
                     ]) {
                         script {
-                            // Get IPs from Terraform outputs - use @echo off to suppress command echo
-                            def ubuntuIPsRaw = bat(
-                                script: "@echo off && \"${TERRAFORM_PATH}\" output -json ubuntu_public_ip", 
+                            // Get instance IDs from Terraform outputs
+                            def ubuntuIDsRaw = bat(
+                                script: "@echo off && \"${TERRAFORM_PATH}\" output -json ubuntu_instance_id", 
                                 returnStdout: true
                             ).trim()
                             
-                            def amazonIPsRaw = bat(
-                                script: "@echo off && \"${TERRAFORM_PATH}\" output -json amazon_linux_public_ip", 
+                            def amazonIDsRaw = bat(
+                                script: "@echo off && \"${TERRAFORM_PATH}\" output -json amazon_linux_instance_id", 
                                 returnStdout: true
                             ).trim()
 
-                            // Extract JSON portion (starts with '[')
-                            def ubuntuIPsJson = ubuntuIPsRaw.substring(ubuntuIPsRaw.indexOf('['))
-                            def amazonIPsJson = amazonIPsRaw.substring(amazonIPsRaw.indexOf('['))
-
-                            echo "Ubuntu IPs JSON: ${ubuntuIPsJson}"
-                            echo "Amazon IPs JSON: ${amazonIPsJson}"
+                            // Extract JSON portion
+                            def ubuntuIDsJson = ubuntuIDsRaw.substring(ubuntuIDsRaw.indexOf('['))
+                            def amazonIDsJson = amazonIDsRaw.substring(amazonIDsRaw.indexOf('['))
 
                             // Parse JSON
-                            def ubuntuIPs = new groovy.json.JsonSlurper().parseText(ubuntuIPsJson)
-                            def amazonIPs = new groovy.json.JsonSlurper().parseText(amazonIPsJson)
+                            def ubuntuIDs = new groovy.json.JsonSlurper().parseText(ubuntuIDsJson)
+                            def amazonIDs = new groovy.json.JsonSlurper().parseText(amazonIDsJson)
 
-                            // Build inventory content
-                            def inventory = "[ubuntu]\n"
-                            ubuntuIPs.each { ip -> 
-                                inventory += "${ip} ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/id_rsa\n" 
-                            }
+                            // Store in environment variables
+                            env.UBUNTU_INSTANCE_ID = ubuntuIDs[0]
+                            env.AMAZON_INSTANCE_ID = amazonIDs[0]
 
-                            inventory += "\n[amazon-linux]\n"
-                            amazonIPs.each { ip -> 
-                                inventory += "${ip} ansible_user=ec2-user ansible_ssh_private_key_file=~/.ssh/id_rsa\n" 
-                            }
-
-                            inventory += "\n[all:vars]\n"
-                            inventory += "ansible_ssh_common_args='-o StrictHostKeyChecking=no'\n"
-
-                            // Write inventory file
-                            writeFile file: "${WORKSPACE_DIR}\\static_inventory", text: inventory
-                            echo "Static inventory created successfully:"
-                            echo "${inventory}"
+                            echo "Ubuntu Instance ID: ${env.UBUNTU_INSTANCE_ID}"
+                            echo "Amazon Linux Instance ID: ${env.AMAZON_INSTANCE_ID}"
                         }
                     }
                 }
             }
         }
 
-        stage('Wait for Instances') {
+        stage('Wait for SSM Agent') {
             steps {
-                echo "Waiting for EC2 instances to be ready..."
-                sleep time: 30, unit: 'SECONDS'
+                echo "Waiting for SSM agent to be ready on instances..."
+                sleep time: 60, unit: 'SECONDS'
             }
         }
 
-        stage('Commit Inventory to Git') {
+        stage('Install Docker on Ubuntu') {
             steps {
-                echo "Committing static_inventory to Git..."
-                withCredentials([usernamePassword(credentialsId: 'github-creds', usernameVariable: 'GIT_USERNAME', passwordVariable: 'GIT_PASSWORD')]) {
-                    dir("${WORKSPACE_DIR}") {
-                        script {
-                            bat '''
-                                git config user.email "yashaswitirole28@gmail.com"
-                                git config user.name "Yashaswitir28"
-                                git add static_inventory
-                                git diff-index --quiet HEAD || git commit -m "Update static_inventory [skip ci]"
-                            '''
-                            
-                            // Push only if there are changes
-                            def pushResult = bat(
-                                script: "git push https://${GIT_USERNAME}:${GIT_PASSWORD}@github.com/Yashaswitir28/jenkins-terraform-ansible.git HEAD:main",
-                                returnStatus: true
-                            )
-                            
-                            if (pushResult == 0) {
-                                echo "Inventory pushed to Git successfully"
-                            } else {
-                                echo "No changes to push or push failed (non-critical)"
-                            }
-                        }
+                echo "Installing Docker on Ubuntu instance via SSM..."
+                withCredentials([
+                    [
+                        $class: 'AmazonWebServicesCredentialsBinding', 
+                        credentialsId: 'aws-credentials',
+                        accessKeyVariable: 'AWS_ACCESS_KEY_ID',
+                        secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
+                    ]
+                ]) {
+                    script {
+                        bat """
+                            aws ssm send-command ^
+                                --instance-ids ${env.UBUNTU_INSTANCE_ID} ^
+                                --document-name "AWS-RunShellScript" ^
+                                --parameters "commands=['sudo apt-get update -y','sudo apt-get install -y docker.io','sudo systemctl start docker','sudo systemctl enable docker','sudo usermod -aG docker ubuntu']" ^
+                                --output text ^
+                                --query "Command.CommandId" > ubuntu_command_id.txt
+                        """
+                        
+                        def ubuntuCommandId = readFile('ubuntu_command_id.txt').trim()
+                        echo "Ubuntu command ID: ${ubuntuCommandId}"
+                        
+                        // Wait for command to complete
+                        sleep time: 30, unit: 'SECONDS'
+                        
+                        bat """
+                            aws ssm get-command-invocation ^
+                                --command-id ${ubuntuCommandId} ^
+                                --instance-id ${env.UBUNTU_INSTANCE_ID} ^
+                                --query "Status" ^
+                                --output text
+                        """
                     }
                 }
             }
         }
 
-        stage('Run Ansible Playbook') {
+        stage('Install Docker on Amazon Linux') {
             steps {
-                echo "Running Ansible playbook to install Docker..."
-                dir("${WORKSPACE_DIR}") {
-                    bat 'ansible-playbook -i static_inventory docker_installation_playbook.yaml -v'
+                echo "Installing Docker on Amazon Linux instance via SSM..."
+                withCredentials([
+                    [
+                        $class: 'AmazonWebServicesCredentialsBinding', 
+                        credentialsId: 'aws-credentials',
+                        accessKeyVariable: 'AWS_ACCESS_KEY_ID',
+                        secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
+                    ]
+                ]) {
+                    script {
+                        bat """
+                            aws ssm send-command ^
+                                --instance-ids ${env.AMAZON_INSTANCE_ID} ^
+                                --document-name "AWS-RunShellScript" ^
+                                --parameters "commands=['sudo yum update -y','sudo yum install -y docker','sudo systemctl start docker','sudo systemctl enable docker','sudo usermod -aG docker ec2-user']" ^
+                                --output text ^
+                                --query "Command.CommandId" > amazon_command_id.txt
+                        """
+                        
+                        def amazonCommandId = readFile('amazon_command_id.txt').trim()
+                        echo "Amazon Linux command ID: ${amazonCommandId}"
+                        
+                        // Wait for command to complete
+                        sleep time: 30, unit: 'SECONDS'
+                        
+                        bat """
+                            aws ssm get-command-invocation ^
+                                --command-id ${amazonCommandId} ^
+                                --instance-id ${env.AMAZON_INSTANCE_ID} ^
+                                --query "Status" ^
+                                --output text
+                        """
+                    }
                 }
             }
         }
 
-        stage('Verify Deployment') {
+        stage('Verify Docker Installation') {
             steps {
-                echo "Deployment completed successfully!"
+                echo "Verifying Docker installation on both instances..."
+                withCredentials([
+                    [
+                        $class: 'AmazonWebServicesCredentialsBinding', 
+                        credentialsId: 'aws-credentials',
+                        accessKeyVariable: 'AWS_ACCESS_KEY_ID',
+                        secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
+                    ]
+                ]) {
+                    script {
+                        echo "Checking Docker on Ubuntu..."
+                        bat """
+                            aws ssm send-command ^
+                                --instance-ids ${env.UBUNTU_INSTANCE_ID} ^
+                                --document-name "AWS-RunShellScript" ^
+                                --parameters "commands=['docker --version']" ^
+                                --output text
+                        """
+                        
+                        echo "Checking Docker on Amazon Linux..."
+                        bat """
+                            aws ssm send-command ^
+                                --instance-ids ${env.AMAZON_INSTANCE_ID} ^
+                                --document-name "AWS-RunShellScript" ^
+                                --parameters "commands=['docker --version']" ^
+                                --output text
+                        """
+                    }
+                }
+            }
+        }
+
+        stage('Deployment Complete') {
+            steps {
+                echo "✅ Docker successfully installed on all instances via SSM!"
                 echo "Infrastructure is running. Review before destroying..."
             }
         }
@@ -248,4 +306,3 @@ pipeline {
         }
     }
 }
-
