@@ -19,9 +19,17 @@ pipeline {
             steps {
                 echo "Testing AWS credentials..."
                 withCredentials([
-                    [$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']
+                    [
+                        $class: 'AmazonWebServicesCredentialsBinding', 
+                        credentialsId: 'aws-credentials',
+                        accessKeyVariable: 'AWS_ACCESS_KEY_ID',
+                        secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
+                    ]
                 ]) {
-                    bat 'aws sts get-caller-identity'
+                    bat '''
+                        echo AWS credentials loaded
+                        aws sts get-caller-identity
+                    '''
                 }
             }
         }
@@ -31,7 +39,12 @@ pipeline {
                 echo "Initializing Terraform..."
                 dir("${WORKSPACE_DIR}\\terraform") {
                     withCredentials([
-                        [$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']
+                        [
+                            $class: 'AmazonWebServicesCredentialsBinding', 
+                            credentialsId: 'aws-credentials',
+                            accessKeyVariable: 'AWS_ACCESS_KEY_ID',
+                            secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
+                        ]
                     ]) {
                         bat "\"${TERRAFORM_PATH}\" init -input=false"
                     }
@@ -44,7 +57,12 @@ pipeline {
                 echo "Running Terraform plan..."
                 dir("${WORKSPACE_DIR}\\terraform") {
                     withCredentials([
-                        [$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']
+                        [
+                            $class: 'AmazonWebServicesCredentialsBinding', 
+                            credentialsId: 'aws-credentials',
+                            accessKeyVariable: 'AWS_ACCESS_KEY_ID',
+                            secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
+                        ]
                     ]) {
                         bat "\"${TERRAFORM_PATH}\" plan -out=tfplan"
                     }
@@ -57,7 +75,12 @@ pipeline {
                 echo "Applying Terraform configuration..."
                 dir("${WORKSPACE_DIR}\\terraform") {
                     withCredentials([
-                        [$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']
+                        [
+                            $class: 'AmazonWebServicesCredentialsBinding', 
+                            credentialsId: 'aws-credentials',
+                            accessKeyVariable: 'AWS_ACCESS_KEY_ID',
+                            secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
+                        ]
                     ]) {
                         bat "\"${TERRAFORM_PATH}\" apply -auto-approve tfplan"
                     }
@@ -70,19 +93,31 @@ pipeline {
                 echo "Generating static inventory for Ansible..."
                 dir("${WORKSPACE_DIR}\\terraform") {
                     withCredentials([
-                        [$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']
+                        [
+                            $class: 'AmazonWebServicesCredentialsBinding', 
+                            credentialsId: 'aws-credentials',
+                            accessKeyVariable: 'AWS_ACCESS_KEY_ID',
+                            secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
+                        ]
                     ]) {
                         script {
-                            // Get IPs from Terraform outputs
-                            def ubuntuIPsJson = bat(
-                                script: "\"${TERRAFORM_PATH}\" output -json ubuntu_public_ip", 
+                            // Get IPs from Terraform outputs - use @echo off to suppress command echo
+                            def ubuntuIPsRaw = bat(
+                                script: "@echo off && \"${TERRAFORM_PATH}\" output -json ubuntu_public_ip", 
                                 returnStdout: true
                             ).trim()
                             
-                            def amazonIPsJson = bat(
-                                script: "\"${TERRAFORM_PATH}\" output -json amazon_linux_public_ip", 
+                            def amazonIPsRaw = bat(
+                                script: "@echo off && \"${TERRAFORM_PATH}\" output -json amazon_linux_public_ip", 
                                 returnStdout: true
                             ).trim()
+
+                            // Extract JSON portion (starts with '[')
+                            def ubuntuIPsJson = ubuntuIPsRaw.substring(ubuntuIPsRaw.indexOf('['))
+                            def amazonIPsJson = amazonIPsRaw.substring(amazonIPsRaw.indexOf('['))
+
+                            echo "Ubuntu IPs JSON: ${ubuntuIPsJson}"
+                            echo "Amazon IPs JSON: ${amazonIPsJson}"
 
                             // Parse JSON
                             def ubuntuIPs = new groovy.json.JsonSlurper().parseText(ubuntuIPsJson)
@@ -180,7 +215,12 @@ pipeline {
                 echo "Destroying Terraform infrastructure..."
                 dir("${WORKSPACE_DIR}\\terraform") {
                     withCredentials([
-                        [$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']
+                        [
+                            $class: 'AmazonWebServicesCredentialsBinding', 
+                            credentialsId: 'aws-credentials',
+                            accessKeyVariable: 'AWS_ACCESS_KEY_ID',
+                            secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
+                        ]
                     ]) {
                         bat "\"${TERRAFORM_PATH}\" destroy -auto-approve"
                     }
@@ -208,4 +248,3 @@ pipeline {
         }
     }
 }
-
