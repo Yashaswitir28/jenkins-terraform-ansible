@@ -27,7 +27,7 @@ pipeline {
             }
         }
 
-        stage('Infra provisioning') {
+        stage('Terraform Apply') {
             steps {
                 dir("${WORKSPACE_DIR}\\terraform") {
                     withCredentials([[
@@ -65,21 +65,21 @@ pipeline {
             }
         }
 
-        stage('Commit static_inventory to GitHub') {
+        stage('Commit static_inventory') {
             steps {
                 withCredentials([string(credentialsId: 'github-token', variable: 'GIT_TOKEN')]) {
                     dir("${WORKSPACE_DIR}") {
                         bat 'git config user.email "yashaswitirole28@gmail.com"'
                         bat 'git config user.name "Yashaswitir28"'
                         bat 'git add static_inventory'
-                        bat 'git commit -m "Update static_inventory file" || echo "No changes to commit"'
+                        bat 'git commit -m "Update static_inventory" || echo No changes to commit'
                         bat "git push https://${GIT_TOKEN}@github.com/Yashaswitir28/jenkins-terraform-ansible.git HEAD:main"
                     }
                 }
             }
         }
 
-        stage('Ansible via AWS SSM') {
+        stage('Run Ansible Playbook') {
             steps {
                 dir("${WORKSPACE_DIR}") {
                     bat 'ansible-playbook -i static_inventory docker_installation_playbook.yaml'
@@ -87,7 +87,7 @@ pipeline {
             }
         }
 
-        stage('Destroy Infra') {
+        stage('Destroy Terraform Infra') {
             steps {
                 dir("${WORKSPACE_DIR}\\terraform") {
                     withCredentials([[
@@ -103,10 +103,8 @@ pipeline {
 
     post {
         always {
-            node {
-                cleanWs()
-                echo "❌ Pipeline finished – workspace cleaned"
-            }
+            echo "Cleaning workspace..."
+            cleanWs()
         }
         success {
             echo "✅ Pipeline finished successfully"
