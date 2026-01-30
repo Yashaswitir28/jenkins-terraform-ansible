@@ -25,11 +25,11 @@ pipeline {
                     credentialsId: 'aws-credentials'
                 ]]) {
                     dir('terraform') {
-                        sh '''
-                            C:/Program Files/Terraform/terraform.exe init
-                            C:/Program Files/Terraform/terraform.exe plan
-                            C:/Program Files/Terraform/terraform.exe apply -auto-approve
-                        '''
+                        bat """
+                        "C:\\Program Files\\Terraform\\terraform.exe" init
+                        "C:\\Program Files\\Terraform\\terraform.exe" plan
+                        "C:\\Program Files\\Terraform\\terraform.exe" apply -auto-approve
+                        """
                     }
                 }
             }
@@ -96,4 +96,5 @@ pipeline {
         }
     }
 }
+
 
