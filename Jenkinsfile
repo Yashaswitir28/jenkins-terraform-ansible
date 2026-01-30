@@ -4,6 +4,7 @@ pipeline {
     environment {
         TERRAFORM_PATH = "C:\\Program Files\\Terraform\\terraform.exe"
         WORKSPACE_DIR = "${env.WORKSPACE}"
+        AWS_DEFAULT_REGION = "ap-south-1"
     }
 
     stages {
