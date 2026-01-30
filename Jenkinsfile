@@ -21,7 +21,7 @@ pipeline {
                 withCredentials([
                     [
                         $class: 'AmazonWebServicesCredentialsBinding', 
-                        credentialsId: 'aws-credentials',
+                        credentialsId: 'aws-creds',
                         accessKeyVariable: 'AWS_ACCESS_KEY_ID',
                         secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
                     ]
@@ -41,7 +41,7 @@ pipeline {
                     withCredentials([
                         [
                             $class: 'AmazonWebServicesCredentialsBinding', 
-                            credentialsId: 'aws-credentials',
+                            credentialsId: 'aws-creds',
                             accessKeyVariable: 'AWS_ACCESS_KEY_ID',
                             secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
                         ]
@@ -59,7 +59,7 @@ pipeline {
                     withCredentials([
                         [
                             $class: 'AmazonWebServicesCredentialsBinding', 
-                            credentialsId: 'aws-credentials',
+                            credentialsId: 'aws-creds',
                             accessKeyVariable: 'AWS_ACCESS_KEY_ID',
                             secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
                         ]
@@ -77,7 +77,7 @@ pipeline {
                     withCredentials([
                         [
                             $class: 'AmazonWebServicesCredentialsBinding', 
-                            credentialsId: 'aws-credentials',
+                            credentialsId: 'aws-creds',
                             accessKeyVariable: 'AWS_ACCESS_KEY_ID',
                             secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
                         ]
@@ -95,7 +95,7 @@ pipeline {
                     withCredentials([
                         [
                             $class: 'AmazonWebServicesCredentialsBinding', 
-                            credentialsId: 'aws-credentials',
+                            credentialsId: 'aws-creds',
                             accessKeyVariable: 'AWS_ACCESS_KEY_ID',
                             secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
                         ]
@@ -157,7 +157,7 @@ pipeline {
         stage('Commit Inventory to Git') {
             steps {
                 echo "Committing static_inventory to Git..."
-                withCredentials([string(credentialsId: 'github-creds', variable: 'GIT_TOKEN')]) {
+                withCredentials([usernamePassword(credentialsId: 'github-creds', usernameVariable: 'GIT_USERNAME', passwordVariable: 'GIT_PASSWORD')]) {
                     dir("${WORKSPACE_DIR}") {
                         script {
                             bat '''
@@ -169,7 +169,7 @@ pipeline {
                             
                             // Push only if there are changes
                             def pushResult = bat(
-                                script: "git push https://${GIT_TOKEN}@github.com/Yashaswitir28/jenkins-terraform-ansible.git HEAD:main",
+                                script: "git push https://${GIT_USERNAME}:${GIT_PASSWORD}@github.com/Yashaswitir28/jenkins-terraform-ansible.git HEAD:main",
                                 returnStatus: true
                             )
                             
@@ -217,7 +217,7 @@ pipeline {
                     withCredentials([
                         [
                             $class: 'AmazonWebServicesCredentialsBinding', 
-                            credentialsId: 'aws-credentials',
+                            credentialsId: 'aws-creds',
                             accessKeyVariable: 'AWS_ACCESS_KEY_ID',
                             secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
                         ]
