@@ -56,13 +56,12 @@ pipeline {
 
         stage('Ansible via AWS SSM') {
             steps {
-                dir('ansible') {
-                    sh '''
-                        ansible -i ../static_inventory docker_installation_playbook.yaml
-                    '''
+                sh '''
+                ansible -i static_inventory docker_installation_playbook.yaml
+                '''
                 }
             }
-        }
+
 
         stage('Proceed to destroy infra?') {
             steps {
@@ -96,5 +95,6 @@ pipeline {
         }
     }
 }
+
 
 
