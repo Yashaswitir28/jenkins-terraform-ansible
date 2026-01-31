@@ -62,6 +62,12 @@ resource "aws_iam_instance_profile" "ssm_profile" {
   role = aws_iam_role.ssm_role.name
 }
 
+resource "aws_iam_role_policy_attachment" "cloudwatch_attach" {
+  role       = aws_iam_role.ssm_role.name
+  policy_arn = "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
+}
+
+
 ################## Amazon Linux Instances ##################
 resource "aws_instance" "amazon_linux_host" {
   count                = var.amazon_linux_host_count
@@ -74,9 +80,9 @@ resource "aws_instance" "amazon_linux_host" {
     Name = "${local.amazon_host}-${count.index + 1}"
     OS   = local.amazon_host
     SSM  = "true"
+    Monitoring = "CloudWatch"
   }
 }
-
 
 ################## Ubuntu Instances ##################
 resource "aws_instance" "ubuntu_host" {
@@ -97,6 +103,8 @@ resource "aws_instance" "ubuntu_host" {
     Name = "${local.ubuntu_host}-${count.index + 1}"
     OS   = local.ubuntu_host
     SSM  = "true"
+    Monitoring = "CloudWatch"
   }
 }
+
 
