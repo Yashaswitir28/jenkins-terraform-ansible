@@ -254,6 +254,73 @@ pipeline {
             }
         }
 
+        stage('Generate Deployment Summary') {
+            when {
+                expression { params.ACTION == 'apply' }
+            }
+            steps {
+                echo "Generating deployment summary..."
+                dir("${WORKSPACE_DIR}") {
+                    script {
+                        def summary = """
+===========================================
+DEPLOYMENT SUMMARY
+===========================================
+Date: ${new Date()}
+Region: ${AWS_DEFAULT_REGION}
+Ubuntu Instance: ${env.UBUNTU_INSTANCE_ID}
+Amazon Linux Instance: ${env.AMAZON_INSTANCE_ID}
+
+Components Installed:
+- Docker Engine
+- CloudWatch Agent
+
+Monitoring: AWS CloudWatch Console
+===========================================
+"""
+                        writeFile file: 'deployment-summary.txt', text: summary
+                        echo summary
+                    }
+                }
+            }
+        }
+
+        stage('Commit Deployment Summary to Git') {
+            when {
+                expression { params.ACTION == 'apply' }
+            }
+            steps {
+                echo "Committing deployment summary to Git..."
+                withCredentials([usernamePassword(
+                    credentialsId: 'github-creds', 
+                    usernameVariable: 'GIT_USERNAME', 
+                    passwordVariable: 'GIT_PASSWORD'
+                )]) {
+                    dir("${WORKSPACE_DIR}") {
+                        script {
+                            bat """
+                                git config user.email "yashaswitirole28@gmail.com"
+                                git config user.name "Yashaswitir28"
+                                git add deployment-summary.txt
+                                git diff-index --quiet HEAD || git commit -m "Add deployment summary [skip ci]"
+                            """
+                            
+                            def pushResult = bat(
+                                script: "git push https://${GIT_USERNAME}:${GIT_PASSWORD}@github.com/Yashaswitir28/jenkins-terraform-ansible.git HEAD:main",
+                                returnStatus: true
+                            )
+                            
+                            if (pushResult == 0) {
+                                echo "✅ Deployment summary pushed to Git successfully"
+                            } else {
+                                echo "⚠️ No changes to push or push failed (non-critical)"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         stage('Monitoring Verification') {
             when {
                 expression { params.ACTION == 'apply' }
@@ -322,4 +389,3 @@ pipeline {
         }
     }
 }
-
