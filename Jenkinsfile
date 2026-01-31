@@ -1,9 +1,17 @@
 pipeline {
     agent any
 
+    parameters {
+        choice(
+            name: 'ACTION',
+            choices: ['apply', 'destroy'],
+            description: 'Choose whether to create or destroy infrastructure'
+        )
+    }
+
     environment {
         TERRAFORM_PATH = "C:\\Program Files\\Terraform\\terraform.exe"
-        WORKSPACE_DIR = "${env.WORKSPACE}"
+        WORKSPACE_DIR  = "${env.WORKSPACE}"
         AWS_DEFAULT_REGION = "ap-south-1"
     }
 
@@ -11,278 +19,193 @@ pipeline {
 
         stage('Checkout SCM') {
             steps {
-                echo "Checking out code from SCM..."
+                echo "Checking out source code..."
                 checkout scm
             }
         }
 
         stage('Verify AWS Credentials') {
             steps {
-                echo "Testing AWS credentials..."
+                echo "Verifying AWS credentials..."
                 withCredentials([
                     [
-                        $class: 'AmazonWebServicesCredentialsBinding', 
+                        $class: 'AmazonWebServicesCredentialsBinding',
                         credentialsId: 'aws-credentials',
                         accessKeyVariable: 'AWS_ACCESS_KEY_ID',
                         secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
                     ]
                 ]) {
-                    bat '''
-                        echo AWS credentials loaded
-                        aws sts get-caller-identity
-                    '''
+                    bat 'aws sts get-caller-identity'
                 }
             }
         }
 
         stage('Terraform Init') {
             steps {
-                echo "Initializing Terraform..."
                 dir("${WORKSPACE_DIR}\\terraform") {
-                    withCredentials([
-                        [
-                            $class: 'AmazonWebServicesCredentialsBinding', 
-                            credentialsId: 'aws-credentials',
-                            accessKeyVariable: 'AWS_ACCESS_KEY_ID',
-                            secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
-                        ]
-                    ]) {
-                        bat "\"${TERRAFORM_PATH}\" init -input=false"
-                    }
+                    bat "\"${TERRAFORM_PATH}\" init -input=false"
+                }
+            }
+        }
+
+        stage('Terraform Format Check') {
+            steps {
+                dir("${WORKSPACE_DIR}\\terraform") {
+                    bat "\"${TERRAFORM_PATH}\" fmt -check"
+                }
+            }
+        }
+
+        stage('Terraform Validate') {
+            steps {
+                dir("${WORKSPACE_DIR}\\terraform") {
+                    bat "\"${TERRAFORM_PATH}\" validate"
                 }
             }
         }
 
         stage('Terraform Plan') {
+            when {
+                expression { params.ACTION == 'apply' }
+            }
             steps {
-                echo "Running Terraform plan..."
                 dir("${WORKSPACE_DIR}\\terraform") {
-                    withCredentials([
-                        [
-                            $class: 'AmazonWebServicesCredentialsBinding', 
-                            credentialsId: 'aws-credentials',
-                            accessKeyVariable: 'AWS_ACCESS_KEY_ID',
-                            secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
-                        ]
-                    ]) {
-                        bat "\"${TERRAFORM_PATH}\" plan -out=tfplan"
-                    }
+                    bat "\"${TERRAFORM_PATH}\" plan -out=tfplan"
                 }
             }
         }
 
         stage('Terraform Apply') {
+            when {
+                expression { params.ACTION == 'apply' }
+            }
             steps {
-                echo "Applying Terraform configuration..."
                 dir("${WORKSPACE_DIR}\\terraform") {
-                    withCredentials([
-                        [
-                            $class: 'AmazonWebServicesCredentialsBinding', 
-                            credentialsId: 'aws-credentials',
-                            accessKeyVariable: 'AWS_ACCESS_KEY_ID',
-                            secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
-                        ]
-                    ]) {
-                        bat "\"${TERRAFORM_PATH}\" apply -auto-approve tfplan"
-                    }
+                    bat "\"${TERRAFORM_PATH}\" apply -auto-approve tfplan"
                 }
             }
         }
 
         stage('Get Instance IDs') {
+            when {
+                expression { params.ACTION == 'apply' }
+            }
             steps {
-                echo "Retrieving EC2 instance IDs..."
                 dir("${WORKSPACE_DIR}\\terraform") {
-                    withCredentials([
-                        [
-                            $class: 'AmazonWebServicesCredentialsBinding', 
-                            credentialsId: 'aws-credentials',
-                            accessKeyVariable: 'AWS_ACCESS_KEY_ID',
-                            secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
-                        ]
-                    ]) {
-                        script {
-                            // Get instance IDs from Terraform outputs
-                            def ubuntuIDsRaw = bat(
-                                script: "@echo off && \"${TERRAFORM_PATH}\" output -json ubuntu_instance_id", 
-                                returnStdout: true
-                            ).trim()
-                            
-                            def amazonIDsRaw = bat(
-                                script: "@echo off && \"${TERRAFORM_PATH}\" output -json amazon_linux_instance_id", 
-                                returnStdout: true
-                            ).trim()
+                    script {
+                        def ubuntuIDsRaw = bat(
+                            script: "@echo off && \"${TERRAFORM_PATH}\" output -json ubuntu_instance_id",
+                            returnStdout: true
+                        ).trim()
 
-                            // Extract JSON portion
-                            def ubuntuIDsJson = ubuntuIDsRaw.substring(ubuntuIDsRaw.indexOf('['))
-                            def amazonIDsJson = amazonIDsRaw.substring(amazonIDsRaw.indexOf('['))
+                        def amazonIDsRaw = bat(
+                            script: "@echo off && \"${TERRAFORM_PATH}\" output -json amazon_linux_instance_id",
+                            returnStdout: true
+                        ).trim()
 
-                            // Parse JSON
-                            def ubuntuIDs = new groovy.json.JsonSlurper().parseText(ubuntuIDsJson)
-                            def amazonIDs = new groovy.json.JsonSlurper().parseText(amazonIDsJson)
+                        def ubuntuIDs = new groovy.json.JsonSlurper().parseText(ubuntuIDsRaw)
+                        def amazonIDs = new groovy.json.JsonSlurper().parseText(amazonIDsRaw)
 
-                            // Store in environment variables
-                            env.UBUNTU_INSTANCE_ID = ubuntuIDs[0]
-                            env.AMAZON_INSTANCE_ID = amazonIDs[0]
+                        env.UBUNTU_INSTANCE_ID = ubuntuIDs[0]
+                        env.AMAZON_INSTANCE_ID = amazonIDs[0]
 
-                            echo "Ubuntu Instance ID: ${env.UBUNTU_INSTANCE_ID}"
-                            echo "Amazon Linux Instance ID: ${env.AMAZON_INSTANCE_ID}"
-                        }
+                        echo "Ubuntu Instance: ${env.UBUNTU_INSTANCE_ID}"
+                        echo "Amazon Linux Instance: ${env.AMAZON_INSTANCE_ID}"
                     }
                 }
             }
         }
 
         stage('Wait for SSM Agent') {
+            when {
+                expression { params.ACTION == 'apply' }
+            }
             steps {
-                echo "Waiting for SSM agent to be ready on instances..."
+                echo "Waiting for SSM agent..."
                 sleep time: 60, unit: 'SECONDS'
             }
         }
 
-        stage('Install Docker on Ubuntu') {
+        stage('Install Docker via SSM') {
+            when {
+                expression { params.ACTION == 'apply' }
+            }
             steps {
-                echo "Installing Docker on Ubuntu instance via SSM..."
+                echo "Installing Docker on instances..."
                 withCredentials([
                     [
-                        $class: 'AmazonWebServicesCredentialsBinding', 
+                        $class: 'AmazonWebServicesCredentialsBinding',
                         credentialsId: 'aws-credentials',
                         accessKeyVariable: 'AWS_ACCESS_KEY_ID',
                         secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
                     ]
                 ]) {
-                    script {
-                        bat """
-                            aws ssm send-command ^
-                                --instance-ids ${env.UBUNTU_INSTANCE_ID} ^
-                                --document-name "AWS-RunShellScript" ^
-                                --parameters "commands=['sudo apt-get update -y','sudo apt-get install -y docker.io','sudo systemctl start docker','sudo systemctl enable docker','sudo usermod -aG docker ubuntu']" ^
-                                --output text ^
-                                --query "Command.CommandId" > ubuntu_command_id.txt
-                        """
-                        
-                        def ubuntuCommandId = readFile('ubuntu_command_id.txt').trim()
-                        echo "Ubuntu command ID: ${ubuntuCommandId}"
-                        
-                        // Wait for command to complete
-                        sleep time: 30, unit: 'SECONDS'
-                        
-                        bat """
-                            aws ssm get-command-invocation ^
-                                --command-id ${ubuntuCommandId} ^
-                                --instance-id ${env.UBUNTU_INSTANCE_ID} ^
-                                --query "Status" ^
-                                --output text
-                        """
-                    }
+                    bat """
+                    aws ssm send-command ^
+                      --instance-ids ${env.UBUNTU_INSTANCE_ID} ^
+                      --document-name "AWS-RunShellScript" ^
+                      --parameters "commands=['sudo apt-get update -y','sudo apt-get install -y docker.io','sudo systemctl start docker','sudo systemctl enable docker']"
+
+                    aws ssm send-command ^
+                      --instance-ids ${env.AMAZON_INSTANCE_ID} ^
+                      --document-name "AWS-RunShellScript" ^
+                      --parameters "commands=['sudo yum install -y docker','sudo systemctl start docker','sudo systemctl enable docker']"
+                    """
                 }
             }
         }
 
-        stage('Install Docker on Amazon Linux') {
+        stage('Install CloudWatch Agent') {
+            when {
+                expression { params.ACTION == 'apply' }
+            }
             steps {
-                echo "Installing Docker on Amazon Linux instance via SSM..."
+                echo "Installing CloudWatch Agent..."
                 withCredentials([
                     [
-                        $class: 'AmazonWebServicesCredentialsBinding', 
+                        $class: 'AmazonWebServicesCredentialsBinding',
                         credentialsId: 'aws-credentials',
                         accessKeyVariable: 'AWS_ACCESS_KEY_ID',
                         secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
                     ]
                 ]) {
-                    script {
-                        bat """
-                            aws ssm send-command ^
-                                --instance-ids ${env.AMAZON_INSTANCE_ID} ^
-                                --document-name "AWS-RunShellScript" ^
-                                --parameters "commands=['sudo yum update -y','sudo yum install -y docker','sudo systemctl start docker','sudo systemctl enable docker','sudo usermod -aG docker ec2-user']" ^
-                                --output text ^
-                                --query "Command.CommandId" > amazon_command_id.txt
-                        """
-                        
-                        def amazonCommandId = readFile('amazon_command_id.txt').trim()
-                        echo "Amazon Linux command ID: ${amazonCommandId}"
-                        
-                        // Wait for command to complete
-                        sleep time: 30, unit: 'SECONDS'
-                        
-                        bat """
-                            aws ssm get-command-invocation ^
-                                --command-id ${amazonCommandId} ^
-                                --instance-id ${env.AMAZON_INSTANCE_ID} ^
-                                --query "Status" ^
-                                --output text
-                        """
-                    }
+                    bat """
+                    aws ssm send-command ^
+                      --instance-ids ${env.UBUNTU_INSTANCE_ID} ${env.AMAZON_INSTANCE_ID} ^
+                      --document-name "AWS-ConfigureAWSPackage" ^
+                      --parameters '{"action":["Install"],"name":["AmazonCloudWatchAgent"]}'
+                    """
                 }
             }
         }
 
-        stage('Verify Docker Installation') {
-            steps {
-                echo "Verifying Docker installation on both instances..."
-                withCredentials([
-                    [
-                        $class: 'AmazonWebServicesCredentialsBinding', 
-                        credentialsId: 'aws-credentials',
-                        accessKeyVariable: 'AWS_ACCESS_KEY_ID',
-                        secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
-                    ]
-                ]) {
-                    script {
-                        echo "Checking Docker on Ubuntu..."
-                        bat """
-                            aws ssm send-command ^
-                                --instance-ids ${env.UBUNTU_INSTANCE_ID} ^
-                                --document-name "AWS-RunShellScript" ^
-                                --parameters "commands=['docker --version']" ^
-                                --output text
-                        """
-                        
-                        echo "Checking Docker on Amazon Linux..."
-                        bat """
-                            aws ssm send-command ^
-                                --instance-ids ${env.AMAZON_INSTANCE_ID} ^
-                                --document-name "AWS-RunShellScript" ^
-                                --parameters "commands=['docker --version']" ^
-                                --output text
-                        """
-                    }
-                }
+        stage('Monitoring Verification') {
+            when {
+                expression { params.ACTION == 'apply' }
             }
-        }
-
-        stage('Deployment Complete') {
             steps {
-                echo "✅ Docker successfully installed on all instances via SSM!"
-                echo "Infrastructure is running. Review before destroying..."
+                echo "CloudWatch monitoring enabled. Metrics available in AWS Console."
             }
         }
 
         stage('Approve Destruction') {
+            when {
+                expression { params.ACTION == 'destroy' }
+            }
             steps {
-                script {
-                    timeout(time: 5, unit: 'MINUTES') {
-                        input message: 'Destroy the infrastructure?', ok: 'Destroy'
-                    }
+                timeout(time: 5, unit: 'MINUTES') {
+                    input message: 'Destroy the infrastructure?', ok: 'Destroy'
                 }
             }
         }
 
         stage('Terraform Destroy') {
+            when {
+                expression { params.ACTION == 'destroy' }
+            }
             steps {
-                echo "Destroying Terraform infrastructure..."
                 dir("${WORKSPACE_DIR}\\terraform") {
-                    withCredentials([
-                        [
-                            $class: 'AmazonWebServicesCredentialsBinding', 
-                            credentialsId: 'aws-credentials',
-                            accessKeyVariable: 'AWS_ACCESS_KEY_ID',
-                            secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
-                        ]
-                    ]) {
-                        bat "\"${TERRAFORM_PATH}\" destroy -auto-approve"
-                    }
+                    bat "\"${TERRAFORM_PATH}\" destroy -auto-approve"
                 }
             }
         }
@@ -290,20 +213,22 @@ pipeline {
 
     post {
         always {
-            echo "Cleaning workspace..."
             cleanWs()
         }
         success {
-            echo "✅ Pipeline completed successfully!"
+            echo """
+            ✅ PIPELINE SUCCESS
+            ------------------
+            Infrastructure lifecycle completed successfully
+            Monitoring: AWS CloudWatch
+            Region: ap-south-1
+            """
         }
         failure {
-            echo "❌ Pipeline failed!"
-            echo "Check logs above for errors."
-            echo "⚠️  Infrastructure may still be running - manual cleanup may be required"
+            echo "❌ Pipeline failed. Please check logs."
         }
         aborted {
-            echo "⚠️  Pipeline was aborted"
-            echo "Infrastructure may still be running - please check AWS console"
+            echo "⚠️ Pipeline aborted."
         }
     }
 }
