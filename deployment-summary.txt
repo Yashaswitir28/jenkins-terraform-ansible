@@ -1,0 +1,15 @@
+
+===========================================
+DEPLOYMENT SUMMARY
+===========================================
+Date: Sat Jan 31 09:51:33 IST 2026
+Region: ap-south-1
+Ubuntu Instance: i-0305eebb7deb220ab
+Amazon Linux Instance: i-00ba1e9c7f0434ca5
+
+Components Installed:
+- Docker Engine
+- CloudWatch Agent
+
+Monitoring: AWS CloudWatch Console
+===========================================
