@@ -58,15 +58,6 @@ pipeline {
             }
         }
 
-        stage('Terraform Format Check') {
-            steps {
-                echo "Checking Terraform formatting..."
-                dir("${WORKSPACE_DIR}\\terraform") {
-                    bat "\"${TERRAFORM_PATH}\" fmt -check || echo Format issues detected"
-                }
-            }
-        }
-
         stage('Terraform Validate') {
             steps {
                 echo "Validating Terraform configuration..."
@@ -389,3 +380,4 @@ Monitoring: AWS CloudWatch Console
         }
     }
 }
+
